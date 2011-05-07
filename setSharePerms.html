@@ -1,0 +1,79 @@
+    <div class="post-content user-defined-markup"><P>In my previous post, I have shown you <A href="http://blogs.msdn.com/helloworld/archive/2008/06/06/programmatically-configuring-permissions-on-a-share-in-c.aspx" mce_href="http://blogs.msdn.com/helloworld/archive/2008/06/06/programmatically-configuring-permissions-on-a-share-in-c.aspx">how to set up permission on a share</A>. The thing with Win32_Share, when you set the permission, you basically overwrites the existing permission.</P>
+<P>If you want to edit permission on the share (grant a new user access to the share, or revoke an existing user's permission), then you have to get the security descriptor for that share, and modify it, and then call <A href="http://msdn.microsoft.com/en-us/library/aa393598(VS.85).aspx" mce_href="http://msdn.microsoft.com/en-us/library/aa393598(VS.85).aspx">Win32_Share.SetShareInfo</A> to set the share permission.</P>
+<P>To get security descriptor of a share, you can use <A href="http://msdn.microsoft.com/en-us/library/aa394188.aspx" mce_href="http://msdn.microsoft.com/en-us/library/aa394188.aspx">Win32_LogicalShareSecuritySetting</A> class. Then update the security descriptor and set that security descriptor back to the share.</P>
+<P>When calling ManagementObject.GetSecurityDescriptor, it will return a ManagementBaseObject instance, it has two properties, ReturnValue and Descriptor. ReturnValue is an integer value, that tells you whether the operation is successful or not. Look for the possible value <A href="http://msdn.microsoft.com/en-us/library/aa390773(VS.85).aspx" mce_href="http://msdn.microsoft.com/en-us/library/aa390773(VS.85).aspx">here</A>. The Descriptor property is an instance of SecurityDescriptor.</P>
+<P>To summarize (for those who love bullet points):</P>
+<UL>
+<LI>Get the Win32_Ace instance for the new user.</LI>
+<LI>Get the current security descriptor.</LI>
+<LI>Get the DACL (Array of Win32_Ace) from the security descriptor.</LI>
+<LI><STRONG>Add</STRONG> the Win32_Ace for the new user into the Win32_Ace array.</LI>
+<LI>Reassign the edited DACL back to the security descriptor.</LI>
+<LI>Call Win32_Share.SetShareInfo to set the permission.</LI></UL>
+<P>You can delete a particular user, or changing the existing permission, by modifying the DACL or SACL in the Security Descriptor.</P>
+<P>This snippet below is just an example on how to read, modify and assign permission on a share, this code was derived from the example on my previous <A href="http://blogs.msdn.com/helloworld/archive/2008/06/06/programmatically-configuring-permissions-on-a-share-in-c.aspx" mce_href="http://blogs.msdn.com/helloworld/archive/2008/06/06/programmatically-configuring-permissions-on-a-share-in-c.aspx">post</A>.</P><PRE class=code><SPAN style="COLOR: green">//Create a new Win32_Ace instance. Please refer to my previous post about creating Win32_Ace.
+</SPAN><SPAN style="COLOR: #2b91af">NTAccount </SPAN>account = <SPAN style="COLOR: blue">new </SPAN><SPAN style="COLOR: #2b91af">NTAccount</SPAN>(<SPAN style="COLOR: #a31515">"contoso"</SPAN>, <SPAN style="COLOR: #a31515">"janedoe"</SPAN>);
+<SPAN style="COLOR: #2b91af">SecurityIdentifier </SPAN>sid = (<SPAN style="COLOR: #2b91af">SecurityIdentifier</SPAN>)account.Translate(<SPAN style="COLOR: blue">typeof</SPAN>(<SPAN style="COLOR: #2b91af">SecurityIdentifier</SPAN>));
+<SPAN style="COLOR: blue">byte</SPAN>[] sidArray = <SPAN style="COLOR: blue">new byte</SPAN>[sid.BinaryLength];
+sid.GetBinaryForm(sidArray, 0);
+
+<SPAN style="COLOR: #2b91af">ManagementObject </SPAN>Trustee = <SPAN style="COLOR: blue">new </SPAN><SPAN style="COLOR: #2b91af">ManagementClass</SPAN>(<SPAN style="COLOR: blue">new </SPAN><SPAN style="COLOR: #2b91af">ManagementPath</SPAN>(<SPAN style="COLOR: #a31515">"Win32_Trustee"</SPAN>), <SPAN style="COLOR: blue">null</SPAN>);
+Trustee[<SPAN style="COLOR: #a31515">"Domain"</SPAN>] = <SPAN style="COLOR: #a31515">"contoso"</SPAN>;
+Trustee[<SPAN style="COLOR: #a31515">"Name"</SPAN>]   = <SPAN style="COLOR: #a31515">"janedoe"</SPAN>;
+Trustee[<SPAN style="COLOR: #a31515">"SID"</SPAN>]   = sidArray; 
+
+<SPAN style="COLOR: #2b91af">ManagementObject </SPAN>ACE = <SPAN style="COLOR: blue">new </SPAN><SPAN style="COLOR: #2b91af">ManagementClass</SPAN>(<SPAN style="COLOR: blue">new </SPAN><SPAN style="COLOR: #2b91af">ManagementPath</SPAN>(<SPAN style="COLOR: #a31515">"Win32_Ace"</SPAN>), <SPAN style="COLOR: blue">null</SPAN>); 
+ACE[<SPAN style="COLOR: #a31515">"AccessMask"</SPAN>] = 2032127; 
+ACE[<SPAN style="COLOR: #a31515">"AceFlags"</SPAN>]   = 3; 
+ACE[<SPAN style="COLOR: #a31515">"AceType"</SPAN>]    = 0; 
+ACE[<SPAN style="COLOR: #a31515">"Trustee"</SPAN>]    = Trustee; 
+
+<SPAN style="COLOR: green">//After we have the new Win_32Ace, now we need to get the existing Ace instances (DACL).
+//Create an instance of Win32_LogicalSecuritySetting, set the path to the server and the share.
+</SPAN><SPAN style="COLOR: #2b91af">ManagementObject </SPAN>Win32LogicalSecuritySetting = <SPAN style="COLOR: blue">new </SPAN><SPAN style="COLOR: #2b91af">ManagementObject</SPAN>(<SPAN style="COLOR: #a31515">@"\\ContosoServer\root\cimv2:Win32_LogicalShareSecuritySetting.Name='JohnShare'"</SPAN>);
+
+<SPAN style="COLOR: green">//Call the GetSecurityDescriptor method. This method returns one out parameter.
+</SPAN><SPAN style="COLOR: #2b91af">ManagementBaseObject </SPAN>Return = Win32LogicalSecuritySetting.InvokeMethod(<SPAN style="COLOR: #a31515">"GetSecurityDescriptor"</SPAN>, <SPAN style="COLOR: blue">null</SPAN>, <SPAN style="COLOR: blue">null</SPAN>);
+    
+<SPAN style="COLOR: green">//The return value of that call above has two properties, ReturnValue, which you can use
+//to read the status of the call (failed, success, etc.), and Descriptor, which is an instance
+//of Win32_SecurityDescriptor.
+</SPAN><SPAN style="COLOR: #2b91af">Int32 </SPAN>ReturnValue = <SPAN style="COLOR: #2b91af">Convert</SPAN>.ToInt32(Return.Properties[<SPAN style="COLOR: #a31515">"ReturnValue"</SPAN>].Value);
+
+<SPAN style="COLOR: blue">if </SPAN>(ReturnValue != 0)
+    <SPAN style="COLOR: blue">throw new </SPAN><SPAN style="COLOR: #2b91af">Exception</SPAN>(<SPAN style="COLOR: #2b91af">String</SPAN>.Format(<SPAN style="COLOR: #a31515">"Error when calling GetSecurityDescriptor. Error code : {0}."</SPAN>, ReturnValue));
+
+<SPAN style="COLOR: green">//Retrieve the array of DACL from the Security Descriptor.
+</SPAN><SPAN style="COLOR: #2b91af">ManagementBaseObject </SPAN>SecurityDescriptor = Return.Properties[<SPAN style="COLOR: #a31515">"Descriptor"</SPAN>].Value <SPAN style="COLOR: blue">as </SPAN><SPAN style="COLOR: #2b91af">ManagementBaseObject</SPAN>;
+<SPAN style="COLOR: #2b91af">ManagementBaseObject</SPAN>[] DACL = SecurityDescriptor[<SPAN style="COLOR: #a31515">"DACL"</SPAN>] <SPAN style="COLOR: blue">as </SPAN><SPAN style="COLOR: #2b91af">ManagementBaseObject</SPAN>[];
+
+<SPAN style="COLOR: blue">if </SPAN>(DACL == <SPAN style="COLOR: blue">null</SPAN>)
+    DACL = <SPAN style="COLOR: blue">new </SPAN><SPAN style="COLOR: #2b91af">ManagementBaseObject</SPAN>[] { ACE };
+<SPAN style="COLOR: blue">else
+</SPAN>{
+    <SPAN style="COLOR: #2b91af">Array</SPAN>.Resize(<SPAN style="COLOR: blue">ref </SPAN>DACL, DACL.Length + 1);
+    DACL[DACL.Length - 1] = ACE;
+}
+
+<SPAN style="COLOR: green">//Reassign the new DACL array with the new user Ace back to the Win32_SecurityDescriptor instance, and call the
+//SetSecurityDescriptor method.
+</SPAN>SecurityDescriptor[<SPAN style="COLOR: #a31515">"DACL"</SPAN>] = DACL;<SPAN style="COLOR: green">
+
+</SPAN><SPAN style="COLOR: #2b91af">ManagementObject </SPAN>Share = <SPAN style="COLOR: blue">new </SPAN><SPAN style="COLOR: #2b91af">ManagementObject</SPAN>(<SPAN style="COLOR: #a31515">@"\\ContosoServer\root\cimv2:Win32_Share.Name='JohnShare'"</SPAN>);
+ReturnValue = <SPAN style="COLOR: #2b91af">Convert</SPAN>.ToInt32(Share.InvokeMethod(<SPAN style="COLOR: #a31515">"SetShareInfo"</SPAN>, <SPAN style="COLOR: blue">new object</SPAN>[] {<SPAN style="COLOR: #2b91af">Int32</SPAN>.MaxValue, <SPAN style="COLOR: #a31515">"This is John's share"</SPAN>, SecurityDescriptor})); 
+
+<SPAN style="COLOR: blue">if </SPAN>(ReturnValue != 0)
+    <SPAN style="COLOR: blue">throw new </SPAN><SPAN style="COLOR: #2b91af">Exception</SPAN>(<SPAN style="COLOR: #2b91af">String</SPAN>.Format(<SPAN style="COLOR: #a31515">"Error when calling GetSecurityDescriptor. Error code : {0}."</SPAN>, ReturnValue));</PRE><A href="http://11011.net/software/vspaste" mce_href="http://11011.net/software/vspaste"></A></div>
+    <div class="post-attachment-viewer">
+		
+    </div>
+    <div class="post-actions">
+        <div class="navigation-list-header"></div>
+        <ul class="navigation-list">
+            
+            <li class="navigation-item"><a class="internal-link view-replies" href="/b/helloworld/archive/2008/07/22/editing-share-permission.aspx#comments"><span></span>3 Comments</a></li>
+            
+            
+        </ul>
+        <div class="navigation-list-footer"></div>
+    </div>
