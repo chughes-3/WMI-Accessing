@@ -39,6 +39,7 @@ namespace WMI_accessing
                 form.textBox1.AppendText(String.Format("PROP = {0}, TYPE = {1} ", prop.Name, prop.Type.ToString()) + Environment.NewLine);
             }
             Object access = inParams.GetPropertyValue("Access");
+            //Stopped development here because ShareAFolder project exists. The rest of the development is there
         }
 
     }
