@@ -40,6 +40,7 @@ namespace WMI_accessing
             }
             Object access = inParams.GetPropertyValue("Access");
             //Stopped development here because ShareAFolder project exists. The rest of the development is there
+            //Maybe should copy Sahare a Folder content to here at some point
         }
 
     }

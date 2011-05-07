@@ -1,4 +1,4 @@
-﻿#define  W32Share //DisplaySession //DelSession  // used to remove display sessions
+﻿#define  W32Share //DisplaySession //DelSession  // used to choose start point for varies code files
 using System;
 using System.Management;
 using System.Windows.Forms;
